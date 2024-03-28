@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.9;
 import "./IERC721Reciever.sol";
 
 // Uncomment this line to use console.log
@@ -18,7 +18,7 @@ contract ERC721 {
     mapping(address => uint) internal _balances;
 
     // tokenId => approved address
-    mapping(address => uint) internal _tokenApprovals;
+    mapping(uint256 => address) internal _tokenApprovals;
 
     //owner => (operator=>yes/no)
     mapping(address => mapping(address => bool)) internal _operatorApprovals;
@@ -54,11 +54,15 @@ contract ERC721 {
         return _balances[_owner];
     }
 
-    function ownerOf(uint256 _tokenId) external view returns (address) {
+    function ownerOf(uint256 _tokenId) public view returns (address) {
         return _owners[_tokenId];
     }
 
-    function safeTransferFrom(_from, _to, _tokenId) public payable {
+    function safeTransferFrom(
+        address _from,
+        address _to,
+        uint256 _tokenId
+    ) public payable {
         safeTransferFrom(_from, _to, _tokenId, "");
     }
 
@@ -71,18 +75,18 @@ contract ERC721 {
         require(
             ownerOf(_tokenId) == msg.sender ||
                 _tokenApprovals[_tokenId] == msg.sender ||
-                _operatorApprovals[ownerOf[_tokenId][msg.sender]],
+                _operatorApprovals[ownerOf(_tokenId)][msg.sender],
             "!Auth"
         );
-        _transfer(from, to, _tokenId);
+        _transfer(_from, _to, _tokenId);
         //trigger func check
         require(
-            _checkOnERC721Received(from, to, tokenId, data),
+            _checkOnERC721Received(_from, _to, _tokenId, data),
             "!ERC721Implementer"
         );
     }
 
-    function _transfer(
+    function transferFrom(
         address _from,
         address _to,
         uint256 _tokenId
@@ -90,7 +94,7 @@ contract ERC721 {
         require(
             ownerOf(_tokenId) == msg.sender ||
                 _tokenApprovals[_tokenId] == msg.sender ||
-                _operatorApprovals[ownerOf[_tokenId][msg.sender]],
+                _operatorApprovals[ownerOf(_tokenId)][msg.sender],
             "!Auth"
         );
         _transfer(_from, _to, _tokenId);
@@ -98,8 +102,8 @@ contract ERC721 {
 
     function approve(address _approved, uint256 _tokenId) public payable {
         require(ownerOf(_tokenId) == msg.sender, "!Owner");
-        _tokenApprovals[_tokenId] = approved;
-        emit Approval(_owner(_tokenId), _approved, _tokenId);
+        _tokenApprovals[_tokenId] = _approved;
+        emit Approval(ownerOf(_tokenId), _approved, _tokenId);
     }
 
     function setApprovalForAll(address _operator, bool _approved) public {
@@ -123,11 +127,11 @@ contract ERC721 {
         _owners[nextTokenIdToMint] = _to;
         _balances[_to] += 1;
         _tokenUris[nextTokenIdToMint] = _uri;
-        emit Transfer(address(0), _to, _tokenId);
+        emit Transfer(address(0), _to, nextTokenIdToMint);
         nextTokenIdToMint += 1;
     }
 
-    function _tokenUri(uint256 _tokenId) public view returns (string) {
+    function _tokenUri(uint256 _tokenId) public view returns (string memory) {
         return _tokenUris[_tokenId];
     }
 
@@ -142,21 +146,22 @@ contract ERC721 {
         uint256 tokenId,
         bytes memory data
     ) private returns (bool) {
+        // check if to is an contract, if yes, to.code.length will always > 0
         if (to.code.length > 0) {
             try
-                IERC721Receiver(to).onERC721Received(
+                IERC721Reciever(to).onERC721Recieved(
                     msg.sender,
                     from,
                     tokenId,
                     data
                 )
             returns (bytes4 retval) {
-                if (retval != IERC721Receiver.onERC721Received.selector) {
-                    revert ERC721InvalidReceiver(to);
-                }
+                return retval == IERC721Reciever(to).onERC721Recieved.selector;
             } catch (bytes memory reason) {
                 if (reason.length == 0) {
-                    revert ERC721InvalidReceiver(to);
+                    revert(
+                        "ERC721: transfer to non ERC721Receiver implementer"
+                    );
                 } else {
                     /// @solidity memory-safe-assembly
                     assembly {
@@ -169,13 +174,13 @@ contract ERC721 {
         }
     }
 
-    function _transfer(address from, address to, uint256 _tokenId) internal {
-        require(ownerOf(_tokenId) == from, "!Owner");
+    function _transfer(address _from, address _to, uint256 _tokenId) internal {
+        require(ownerOf(_tokenId) == _from, "!Owner");
         require(_to != address(0), "!ToAdd0");
         delete _tokenApprovals[_tokenId];
-        _balances[from] -= 1;
-        _balances[to] += 1;
-        _owners[tokenId] = _to;
+        _balances[_from] -= 1;
+        _balances[_to] += 1;
+        _owners[_tokenId] = _to;
 
         emit Transfer(_from, _to, _tokenId);
     }
